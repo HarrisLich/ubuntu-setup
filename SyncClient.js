@@ -4,20 +4,28 @@ const axios = require('axios');
 
 class SyncClient {
     constructor(config) {
+        if (!config) {
+            throw new Error('Configuration is required');
+        }
+
         // PostgreSQL configuration
         this.pgPool = new Pool({
-            user: config.postgres.user || 'postgres',
-            host: config.postgres.host || 'localhost',
-            database: config.postgres.database || 'postgres',
-            password: config.postgres.password || '_Welc0me',
-            port: config.postgres.port || 5432,
+            user: config.postgres.user,
+            host: config.postgres.host,
+            database: config.postgres.database,
+            password: config.postgres.password,
+            port: config.postgres.port,
+            // Add connection timeout and retry settings
+            connectionTimeoutMillis: 10000,
+            idleTimeoutMillis: 30000,
+            max: 20, // Maximum number of clients in the pool
         });
 
         // Redis configuration
         this.redis = new Redis({
-            host: config.redis.host || '10.1.10.138',
-            port: config.redis.port || 6379,
-            password: config.redis.password || 'password123',
+            host: config.redis.host,
+            port: config.redis.port,
+            password: config.redis.password,
             retryStrategy: (times) => {
                 const delay = Math.min(times * 50, 2000);
                 return delay;
@@ -29,12 +37,36 @@ class SyncClient {
 
         // Strapi configuration
         this.strapiConfig = {
-            baseUrl: config.strapi.baseUrl || 'http://10.1.10.138:1337',
-            token: config.strapi.token
+            baseUrl: config.strapi.baseUrl,
+            token: config.strapi.token,
+            webhookSecret: config.strapi.webhookSecret
         };
 
         // Initialize database schema
-        this.initializeDatabase();
+        this.initializeDatabase().catch(error => {
+            console.error('Failed to initialize database:', error);
+            throw error;
+        });
+
+        // Setup connection error handlers
+        this.setupErrorHandlers();
+    }
+
+    setupErrorHandlers() {
+        // PostgreSQL error handling
+        this.pgPool.on('error', (err) => {
+            console.error('Unexpected error on idle PostgreSQL client', err);
+            process.exit(-1);
+        });
+
+        // Redis error handling
+        this.redis.on('error', (err) => {
+            console.error('Redis connection error:', err);
+        });
+
+        this.redis.on('connect', () => {
+            console.log('Successfully connected to Redis');
+        });
     }
 
     async initializeDatabase() {

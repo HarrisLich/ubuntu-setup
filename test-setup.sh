@@ -295,4 +295,63 @@ print_status "4. View logs with 'pm2 logs'"
 
 # Print PM2 status
 print_status "Current PM2 status:"
-pm2 status 
+pm2 status
+
+# Print environment setup instructions
+print_status "Setting up environment variables..."
+print_status "1. Create a .env file in your project root:"
+cat > .env.example << EOF
+# Strapi API Token (Required)
+# Get this from Strapi Admin Panel -> Settings -> API Tokens
+STRAPI_TOKEN=your_strapi_token_here
+
+# Strapi Webhook Secret (Required)
+# This will be used to verify webhook signatures
+STRAPI_WEBHOOK_SECRET=your_webhook_secret_here
+
+# Server Port (Optional)
+PORT=3000
+EOF
+
+print_status "2. Configure Strapi Webhook:"
+print_status "   a. Log in to Strapi Admin Panel at http://localhost:$STRAPI_PORT/admin"
+print_status "   b. Navigate to Settings -> Webhooks"
+print_status "   c. Click 'Create new webhook'"
+print_status "   d. Configure the webhook with the following settings:"
+print_status "      - Name: User Sync Webhook"
+print_status "      - URL: http://localhost:3000/strapi/webhook"
+print_status "      - Events: Select 'Entry.create', 'Entry.update', and 'Entry.delete'"
+print_status "      - Headers: Add 'x-company-id' header with your company ID"
+print_status "      - Secret: Generate a secure random string and use it as STRAPI_WEBHOOK_SECRET"
+print_status "   e. Save the webhook configuration"
+print_status "   f. Copy the generated webhook secret to your .env file"
+
+print_status "3. Get Strapi API Token:"
+print_status "   a. In Strapi Admin Panel, go to Settings -> API Tokens"
+print_status "   b. Click 'Create new API Token'"
+print_status "   c. Configure the token:"
+print_status "      - Name: Sync Client Token"
+print_status "      - Description: Token for SyncClient application"
+print_status "      - Token duration: Unlimited"
+print_status "      - Token type: Full access"
+print_status "   d. Save and copy the generated token to your .env file"
+
+print_status "4. Final .env file should look like this (replace with your values):"
+cat > .env.example << EOF
+STRAPI_TOKEN=your_generated_token_here
+STRAPI_WEBHOOK_SECRET=your_generated_webhook_secret_here
+PORT=3000
+EOF
+
+print_status "5. Start the SyncClient application:"
+print_status "   a. Navigate to your project directory"
+print_status "   b. Install dependencies: npm install"
+print_status "   c. Start the server: node index.js"
+
+print_status "6. Test the setup:"
+print_status "   a. Create a new user in Strapi"
+print_status "   b. Check the webhook logs in your SyncClient application"
+print_status "   c. Verify the user was synced to PostgreSQL and Redis"
+
+print_warning "IMPORTANT: Keep your .env file secure and never commit it to version control!"
+print_warning "Make sure to use strong, unique values for STRAPI_TOKEN and STRAPI_WEBHOOK_SECRET" 

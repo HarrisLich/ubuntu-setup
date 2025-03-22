@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const crypto = require('crypto');
@@ -8,8 +9,23 @@ const config = require('./config');
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Validate required environment variables
+const requiredEnvVars = ['STRAPI_TOKEN', 'STRAPI_WEBHOOK_SECRET'];
+const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingEnvVars.length > 0) {
+    console.error('Missing required environment variables:', missingEnvVars.join(', '));
+    process.exit(1);
+}
+
 // Initialize SyncClient
-const syncClient = new SyncClient(config);
+let syncClient;
+try {
+    syncClient = new SyncClient(config);
+} catch (error) {
+    console.error('Failed to initialize SyncClient:', error);
+    process.exit(1);
+}
 
 // Middleware
 app.use(bodyParser.json());
@@ -49,7 +65,7 @@ const errorHandler = (err, req, res, next) => {
 };
 
 // Strapi webhook handler
-app.post('/strapi/webhook', async (req, res, next) => {
+app.post('/strapi/webhook', verifyWebhookSignature, async (req, res, next) => {
     try {
         const { event, entry, model } = req.body;
         const companyId = req.headers['x-company-id'];
@@ -87,8 +103,28 @@ app.post('/strapi/webhook', async (req, res, next) => {
 });
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok' });
+app.get('/health', async (req, res) => {
+    try {
+        // Check Redis connection
+        await syncClient.redis.ping();
+        
+        // Check PostgreSQL connection
+        const client = await syncClient.pgPool.connect();
+        await client.query('SELECT 1');
+        client.release();
+
+        res.json({ 
+            status: 'ok',
+            redis: 'connected',
+            postgres: 'connected'
+        });
+    } catch (error) {
+        console.error('Health check failed:', error);
+        res.status(500).json({ 
+            status: 'error',
+            message: error.message
+        });
+    }
 });
 
 // Apply error handling middleware
@@ -103,9 +139,14 @@ const server = app.listen(port, () => {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
     console.log('SIGTERM received. Closing server...');
-    await syncClient.close();
-    server.close(() => {
-        console.log('Server closed');
-        process.exit(0);
-    });
+    try {
+        await syncClient.close();
+        server.close(() => {
+            console.log('Server closed');
+            process.exit(0);
+        });
+    } catch (error) {
+        console.error('Error during shutdown:', error);
+        process.exit(1);
+    }
 }); 
