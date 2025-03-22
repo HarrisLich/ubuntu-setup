@@ -156,6 +156,23 @@ fi
 # Configure Strapi database
 print_status "Configuring Strapi database..."
 mkdir -p "$STRAPI_APP_NAME/config"
+
+# Generate JWT secret
+JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(16).toString('base64'))")
+
+# Create .env file
+print_status "Creating Strapi environment file..."
+cat > "$STRAPI_APP_NAME/.env" << EOF
+HOST=0.0.0.0
+PORT=$STRAPI_PORT
+APP_KEYS=toBeGenerated1,toBeGenerated2,toBeGenerated3,toBeGenerated4
+API_TOKEN_SALT=toBeGenerated
+ADMIN_JWT_SECRET=$JWT_SECRET
+TRANSFER_TOKEN_SALT=toBeGenerated
+JWT_SECRET=$JWT_SECRET
+EOF
+
+# Create database.js
 cat > "$STRAPI_APP_NAME/config/database.js" << EOF
 module.exports = ({ env }) => ({
   host: env('HOST', '0.0.0.0'),
@@ -179,6 +196,18 @@ module.exports = ({ env }) => ({
 });
 EOF
 
+# Create plugins.js
+print_status "Configuring Strapi plugins..."
+cat > "$STRAPI_APP_NAME/config/plugins.js" << EOF
+module.exports = ({ env }) => ({
+  'users-permissions': {
+    config: {
+      jwtSecret: env('JWT_SECRET'),
+    },
+  },
+});
+EOF
+
 # Install Strapi dependencies and build
 print_status "Installing Strapi dependencies..."
 cd "$STRAPI_APP_NAME"
@@ -193,7 +222,7 @@ if [ ! -d "dist" ]; then
     exit 1
 fi
 
-# Create PM2 ecosystem file
+# Update PM2 ecosystem file with environment variables
 print_status "Creating PM2 ecosystem file..."
 cat > "../ecosystem.config.js" << EOF
 module.exports = {
@@ -206,6 +235,12 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: $STRAPI_PORT,
+        HOST: '0.0.0.0',
+        APP_KEYS: 'toBeGenerated1,toBeGenerated2,toBeGenerated3,toBeGenerated4',
+        API_TOKEN_SALT: 'toBeGenerated',
+        ADMIN_JWT_SECRET: '$JWT_SECRET',
+        TRANSFER_TOKEN_SALT: 'toBeGenerated',
+        JWT_SECRET: '$JWT_SECRET',
       },
     },
   ],
