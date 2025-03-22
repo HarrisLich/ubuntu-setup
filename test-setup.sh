@@ -6,6 +6,12 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Configuration
+STRAPI_APP_NAME="strapi-app"
+STRAPI_PORT=1337
+REDIS_PORT=6379
+REDIS_PASSWORD="password123"
+
 # Function to print status messages
 print_status() {
     echo -e "${GREEN}[✓] $1${NC}"
@@ -24,6 +30,11 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Function to check if a port is in use
+port_in_use() {
+    netstat -tuln | grep ":$1 " >/dev/null 2>&1
+}
+
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then 
     print_error "Please run as root (use sudo)"
@@ -38,71 +49,208 @@ TEST_DIR="$SCRIPT_DIR/strapi-test"
 mkdir -p $TEST_DIR
 cd $TEST_DIR
 
-# Copy the setup script from the current directory
-print_status "Copying setup script..."
-cp "$SCRIPT_DIR/setup.js" .
+# Update system packages
+print_status "Updating system packages..."
+apt-get update
+apt-get upgrade -y
 
 # Install required dependencies
 print_status "Installing required dependencies..."
-apt-get update
-apt-get install -y curl git
+apt-get install -y curl git build-essential net-tools
 
-# Install Node.js if not present
-if ! command_exists node; then
-    print_status "Installing Node.js..."
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt-get install -y nodejs
+# Check if ports are available
+if port_in_use $STRAPI_PORT; then
+    print_error "Port $STRAPI_PORT is already in use. Please free up this port or change STRAPI_PORT in the script."
+    exit 1
 fi
 
-# Install PM2 globally if not present
+if port_in_use $REDIS_PORT; then
+    print_error "Port $REDIS_PORT is already in use. Please free up this port or change REDIS_PORT in the script."
+    exit 1
+fi
+
+# Install Node.js 20.x
+print_status "Installing Node.js 20.x..."
+if ! command_exists node; then
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    apt-get install -y nodejs
+else
+    NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+    if [ "$NODE_VERSION" -lt 20 ]; then
+        print_status "Upgrading Node.js to version 20.x..."
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install -y nodejs
+    fi
+fi
+
+# Verify Node.js installation
+if ! command_exists node || ! command_exists npm; then
+    print_error "Node.js or npm installation failed"
+    exit 1
+fi
+
+# Install PM2 globally
+print_status "Installing PM2..."
 if ! command_exists pm2; then
-    print_status "Installing PM2..."
     npm install -g pm2
 fi
 
-# Run the setup script
-print_status "Running setup script..."
-node setup.js
+# Install Redis
+print_status "Installing Redis..."
+if ! command_exists redis-cli; then
+    apt-get install -y redis-server
+fi
+
+# Configure Redis
+print_status "Configuring Redis..."
+REDIS_CONFIG="/etc/redis/redis.conf"
+REDIS_CONFIG_BACKUP="/etc/redis/redis.conf.backup"
+
+# Backup existing Redis config
+if [ -f "$REDIS_CONFIG" ]; then
+    cp "$REDIS_CONFIG" "$REDIS_CONFIG_BACKUP"
+fi
+
+# Create new Redis config
+cat > "$REDIS_CONFIG" << EOF
+port $REDIS_PORT
+requirepass $REDIS_PASSWORD
+bind 127.0.0.1
+EOF
+
+# Restart Redis service
+print_status "Restarting Redis service..."
+systemctl stop redis-server || true
+systemctl start redis-server
+systemctl enable redis-server
+
+# Verify Redis is running
+print_status "Verifying Redis connection..."
+if redis-cli -a "$REDIS_PASSWORD" ping; then
+    print_status "Redis is running and configured correctly"
+else
+    print_error "Redis configuration failed"
+    # Restore backup if exists
+    if [ -f "$REDIS_CONFIG_BACKUP" ]; then
+        cp "$REDIS_CONFIG_BACKUP" "$REDIS_CONFIG"
+        systemctl restart redis-server
+    fi
+    exit 1
+fi
+
+# Create Strapi application
+print_status "Creating Strapi application..."
+if [ -d "$STRAPI_APP_NAME" ]; then
+    print_warning "Strapi directory already exists. Removing it..."
+    rm -rf "$STRAPI_APP_NAME"
+fi
+
+npx create-strapi-app@latest "$STRAPI_APP_NAME" --quickstart --no-run
+
+# Verify Strapi creation
+if [ ! -d "$STRAPI_APP_NAME" ]; then
+    print_error "Failed to create Strapi application"
+    exit 1
+fi
+
+# Configure Strapi database
+print_status "Configuring Strapi database..."
+mkdir -p "$STRAPI_APP_NAME/config"
+cat > "$STRAPI_APP_NAME/config/database.js" << EOF
+module.exports = ({ env }) => ({
+  host: env('HOST', '0.0.0.0'),
+  port: env.int('PORT', $STRAPI_PORT),
+  app: {
+    keys: env.array('APP_KEYS'),
+  },
+  webhooks: {
+    populateRelations: env.bool('WEBHOOKS_POPULATE_RELATIONS', false),
+  },
+  database: {
+    connection: {
+      client: 'sqlite',
+      connection: {
+        filename: env('DATABASE_FILENAME', '.tmp/data.db'),
+      },
+      useNullAsDefault: true,
+    },
+    debug: false,
+  },
+});
+EOF
+
+# Install Strapi dependencies and build
+print_status "Installing Strapi dependencies..."
+cd "$STRAPI_APP_NAME"
+npm install
+
+print_status "Building Strapi application..."
+npm run build
+
+# Verify build
+if [ ! -d "dist" ]; then
+    print_error "Strapi build failed"
+    exit 1
+fi
+
+# Create PM2 ecosystem file
+print_status "Creating PM2 ecosystem file..."
+cat > "../ecosystem.config.js" << EOF
+module.exports = {
+  apps: [
+    {
+      name: 'strapi',
+      cwd: '${TEST_DIR}/${STRAPI_APP_NAME}',
+      script: 'npm',
+      args: 'start',
+      env: {
+        NODE_ENV: 'production',
+        PORT: $STRAPI_PORT,
+      },
+    },
+  ],
+};
+EOF
+
+# Start services with PM2
+print_status "Starting services with PM2..."
+cd ..
+pm2 delete strapi 2>/dev/null || true
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup
 
 # Wait for services to start
 print_status "Waiting for services to start..."
-sleep 10
-
-# Test Redis connection
-print_status "Testing Redis connection..."
-if command_exists redis-cli; then
-    redis-cli -a password123 ping
-else
-    print_error "Redis CLI not found. Redis may not have been installed properly."
-fi
+sleep 15
 
 # Test Strapi
 print_status "Testing Strapi..."
-if curl -I http://localhost:1337/admin >/dev/null 2>&1; then
-    print_status "Strapi is running!"
-else
-    print_error "Strapi is not responding. Checking logs..."
-    pm2 logs strapi --lines 20
-fi
+MAX_RETRIES=5
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if curl -I "http://localhost:$STRAPI_PORT/admin" >/dev/null 2>&1; then
+        print_status "Strapi is running!"
+        break
+    fi
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+        print_error "Strapi is not responding after $MAX_RETRIES attempts. Checking logs..."
+        pm2 logs strapi --lines 20
+        exit 1
+    fi
+    print_warning "Strapi not ready yet, retrying in 5 seconds... ($RETRY_COUNT/$MAX_RETRIES)"
+    sleep 5
+done
 
-# Check PM2 status
-print_status "Checking PM2 status..."
-if command_exists pm2; then
-    pm2 status
-else
-    print_error "PM2 not found. Services may not be running properly."
-fi
-
-# Print test results
-print_status "Setup test completed!"
+# Print final status
+print_status "Setup completed successfully!"
 print_status "You can now:"
-print_status "1. Access Strapi at http://localhost:1337/admin"
-print_status "2. Check Redis at localhost:6379"
+print_status "1. Access Strapi at http://localhost:$STRAPI_PORT/admin"
+print_status "2. Check Redis at localhost:$REDIS_PORT"
 print_status "3. Monitor services with 'pm2 monit'"
 print_status "4. View logs with 'pm2 logs'"
 
-# Print troubleshooting information if needed
-if ! command_exists node || ! command_exists pm2 || ! command_exists redis-cli; then
-    print_warning "Some components may not be installed properly. Please check the logs above."
-    print_warning "You may need to run the setup script again or install components manually."
-fi 
+# Print PM2 status
+print_status "Current PM2 status:"
+pm2 status 
