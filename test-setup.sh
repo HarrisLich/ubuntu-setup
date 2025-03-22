@@ -58,48 +58,17 @@ apt-get upgrade -y
 print_status "Installing required dependencies..."
 apt-get install -y curl git build-essential net-tools
 
-# Check if ports are available
-if port_in_use $STRAPI_PORT; then
-    print_error "Port $STRAPI_PORT is already in use. Please free up this port or change STRAPI_PORT in the script."
-    exit 1
-fi
-
-if port_in_use $REDIS_PORT; then
-    print_error "Port $REDIS_PORT is already in use. Please free up this port or change REDIS_PORT in the script."
-    exit 1
-fi
-
-# Install Node.js 20.x
-print_status "Installing Node.js 20.x..."
-if ! command_exists node; then
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt-get install -y nodejs
-else
-    NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
-    if [ "$NODE_VERSION" -lt 20 ]; then
-        print_status "Upgrading Node.js to version 20.x..."
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-        apt-get install -y nodejs
-    fi
-fi
-
-# Verify Node.js installation
-if ! command_exists node || ! command_exists npm; then
-    print_error "Node.js or npm installation failed"
-    exit 1
-fi
-
-# Install PM2 globally
-print_status "Installing PM2..."
-if ! command_exists pm2; then
-    npm install -g pm2
-fi
-
 # Check if Redis is already running
 print_status "Checking Redis status..."
 if redis-cli ping >/dev/null 2>&1; then
     print_status "Redis is already running. Skipping Redis installation and configuration."
 else
+    # Check if Redis port is available
+    if port_in_use $REDIS_PORT; then
+        print_error "Port $REDIS_PORT is already in use. Please free up this port or change REDIS_PORT in the script."
+        exit 1
+    fi
+
     # Install Redis
     print_status "Installing Redis..."
     if ! command_exists redis-cli; then
@@ -142,6 +111,38 @@ EOF
         fi
         exit 1
     fi
+fi
+
+# Check if Strapi port is available
+if port_in_use $STRAPI_PORT; then
+    print_error "Port $STRAPI_PORT is already in use. Please free up this port or change STRAPI_PORT in the script."
+    exit 1
+fi
+
+# Install Node.js 20.x
+print_status "Installing Node.js 20.x..."
+if ! command_exists node; then
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    apt-get install -y nodejs
+else
+    NODE_VERSION=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+    if [ "$NODE_VERSION" -lt 20 ]; then
+        print_status "Upgrading Node.js to version 20.x..."
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install -y nodejs
+    fi
+fi
+
+# Verify Node.js installation
+if ! command_exists node || ! command_exists npm; then
+    print_error "Node.js or npm installation failed"
+    exit 1
+fi
+
+# Install PM2 globally
+print_status "Installing PM2..."
+if ! command_exists pm2; then
+    npm install -g pm2
 fi
 
 # Create Strapi application
