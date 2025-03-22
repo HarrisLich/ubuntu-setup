@@ -95,47 +95,53 @@ if ! command_exists pm2; then
     npm install -g pm2
 fi
 
-# Install Redis
-print_status "Installing Redis..."
-if ! command_exists redis-cli; then
-    apt-get install -y redis-server
-fi
+# Check if Redis is already running
+print_status "Checking Redis status..."
+if redis-cli ping >/dev/null 2>&1; then
+    print_status "Redis is already running. Skipping Redis installation and configuration."
+else
+    # Install Redis
+    print_status "Installing Redis..."
+    if ! command_exists redis-cli; then
+        apt-get install -y redis-server
+    fi
 
-# Configure Redis
-print_status "Configuring Redis..."
-REDIS_CONFIG="/etc/redis/redis.conf"
-REDIS_CONFIG_BACKUP="/etc/redis/redis.conf.backup"
+    # Configure Redis
+    print_status "Configuring Redis..."
+    REDIS_CONFIG="/etc/redis/redis.conf"
+    REDIS_CONFIG_BACKUP="/etc/redis/redis.conf.backup"
 
-# Backup existing Redis config
-if [ -f "$REDIS_CONFIG" ]; then
-    cp "$REDIS_CONFIG" "$REDIS_CONFIG_BACKUP"
-fi
+    # Backup existing Redis config
+    if [ -f "$REDIS_CONFIG" ]; then
+        cp "$REDIS_CONFIG" "$REDIS_CONFIG_BACKUP"
+    fi
 
-# Create new Redis config
-cat > "$REDIS_CONFIG" << EOF
+    # Create new Redis config
+    cat > "$REDIS_CONFIG" << EOF
 port $REDIS_PORT
 requirepass $REDIS_PASSWORD
 bind 127.0.0.1
 EOF
 
-# Restart Redis service
-print_status "Restarting Redis service..."
-systemctl stop redis-server || true
-systemctl start redis-server
-systemctl enable redis-server
+    # Restart Redis service
+    print_status "Restarting Redis service..."
+    systemctl stop redis-server || true
+    systemctl start redis-server
+    systemctl enable redis-server
 
-# Verify Redis is running
-print_status "Verifying Redis connection..."
-if redis-cli -a "$REDIS_PASSWORD" ping; then
-    print_status "Redis is running and configured correctly"
-else
-    print_error "Redis configuration failed"
-    # Restore backup if exists
-    if [ -f "$REDIS_CONFIG_BACKUP" ]; then
-        cp "$REDIS_CONFIG_BACKUP" "$REDIS_CONFIG"
-        systemctl restart redis-server
+    # Verify Redis is running
+    print_status "Verifying Redis connection..."
+    if redis-cli -a "$REDIS_PASSWORD" ping; then
+        print_status "Redis is running and configured correctly"
+    else
+        print_error "Redis configuration failed"
+        # Restore backup if exists
+        if [ -f "$REDIS_CONFIG_BACKUP" ]; then
+            cp "$REDIS_CONFIG_BACKUP" "$REDIS_CONFIG"
+            systemctl restart redis-server
+        fi
+        exit 1
     fi
-    exit 1
 fi
 
 # Create Strapi application
