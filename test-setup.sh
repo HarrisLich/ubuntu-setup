@@ -30,17 +30,17 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 # Create a test directory
-TEST_DIR="strapi-test"
+TEST_DIR="$SCRIPT_DIR/strapi-test"
 mkdir -p $TEST_DIR
 cd $TEST_DIR
 
-# Download the setup script
-print_status "Downloading setup script..."
-curl -O https://raw.githubusercontent.com/yourusername/yourrepo/main/setup.js
-
-# Make the script executable
-chmod +x setup.js
+# Copy the setup script from the current directory
+print_status "Copying setup script..."
+cp "$SCRIPT_DIR/setup.js" .
 
 # Install required dependencies
 print_status "Installing required dependencies..."

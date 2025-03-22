@@ -30,6 +30,10 @@ function runCommand(command, cwd = process.cwd()) {
 async function setup() {
     console.log('Starting setup process...');
 
+    // Get the current working directory
+    const currentDir = process.cwd();
+    console.log(`Working directory: ${currentDir}`);
+
     // Update system packages
     console.log('\nUpdating system packages...');
     runCommand('sudo apt-get update');
@@ -41,7 +45,7 @@ async function setup() {
         execSync('node --version', { stdio: 'ignore' });
     } catch {
         console.log('Installing Node.js...');
-        runCommand('curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -');
+        runCommand('curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -');
         runCommand('sudo apt-get install -y nodejs');
     }
 
@@ -92,11 +96,12 @@ module.exports = ({ env }) => ({
   },
 });
 `;
-    fs.writeFileSync(path.join(config.strapi.appName, 'config/database.js'), strapiConfig);
+    const strapiConfigPath = path.join(currentDir, config.strapi.appName, 'config/database.js');
+    fs.writeFileSync(strapiConfigPath, strapiConfig);
 
     // Install Strapi dependencies
     console.log('\nInstalling Strapi dependencies...');
-    runCommand('cd ' + config.strapi.appName);
+    runCommand('cd ' + path.join(currentDir, config.strapi.appName));
     runCommand('npm install');
 
     // Create PM2 ecosystem file
@@ -106,7 +111,7 @@ module.exports = {
   apps: [
     {
       name: 'strapi',
-      cwd: '${path.join(process.cwd(), config.strapi.appName)}',
+      cwd: '${path.join(currentDir, config.strapi.appName)}',
       script: 'npm',
       args: 'start',
       env: {
@@ -117,7 +122,7 @@ module.exports = {
   ],
 };
 `;
-    fs.writeFileSync('ecosystem.config.js', ecosystemConfig);
+    fs.writeFileSync(path.join(currentDir, 'ecosystem.config.js'), ecosystemConfig);
 
     // Start services with PM2
     console.log('\nStarting services with PM2...');
