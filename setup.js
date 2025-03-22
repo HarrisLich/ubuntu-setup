@@ -67,9 +67,36 @@ requirepass ${config.redis.password}
 bind 127.0.0.1
 `;
     try {
+        // First stop Redis service
+        console.log('Stopping Redis service...');
+        try {
+            execSync('sudo systemctl stop redis-server', { timeout: 10000 });
+        } catch (error) {
+            console.log('Warning: Could not stop Redis service, attempting to continue...');
+        }
+
+        // Write new configuration
+        console.log('Writing Redis configuration...');
         fs.writeFileSync('/etc/redis/redis.conf', redisConfig);
-        runCommand('sudo systemctl restart redis-server');
-        runCommand('sudo systemctl enable redis-server');
+
+        // Start Redis with the new configuration
+        console.log('Starting Redis service...');
+        try {
+            execSync('sudo systemctl start redis-server', { timeout: 10000 });
+        } catch (error) {
+            console.error('Error starting Redis:', error);
+            console.log('Attempting to force restart Redis...');
+            execSync('sudo killall redis-server', { stdio: 'ignore' });
+            execSync('sudo systemctl start redis-server', { timeout: 10000 });
+        }
+
+        // Enable Redis service
+        console.log('Enabling Redis service...');
+        execSync('sudo systemctl enable redis-server', { timeout: 5000 });
+
+        // Verify Redis is running
+        console.log('Verifying Redis service...');
+        execSync('redis-cli ping', { timeout: 5000 });
     } catch (error) {
         console.error('Error configuring Redis:', error);
         console.log('Attempting to continue with existing Redis configuration...');
