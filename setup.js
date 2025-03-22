@@ -49,9 +49,15 @@ async function setup() {
         runCommand('sudo apt-get install -y nodejs');
     }
 
-    // Install Redis
-    console.log('\nInstalling Redis...');
-    runCommand('sudo apt-get install -y redis-server');
+    // Install Redis if not present
+    console.log('\nChecking Redis installation...');
+    try {
+        execSync('redis-cli --version', { stdio: 'ignore' });
+        console.log('Redis is already installed, configuring...');
+    } catch {
+        console.log('Installing Redis...');
+        runCommand('sudo apt-get install -y redis-server');
+    }
     
     // Configure Redis
     console.log('\nConfiguring Redis...');
@@ -60,9 +66,14 @@ port ${config.redis.port}
 requirepass ${config.redis.password}
 bind 127.0.0.1
 `;
-    fs.writeFileSync('/etc/redis/redis.conf', redisConfig);
-    runCommand('sudo systemctl restart redis-server');
-    runCommand('sudo systemctl enable redis-server');
+    try {
+        fs.writeFileSync('/etc/redis/redis.conf', redisConfig);
+        runCommand('sudo systemctl restart redis-server');
+        runCommand('sudo systemctl enable redis-server');
+    } catch (error) {
+        console.error('Error configuring Redis:', error);
+        console.log('Attempting to continue with existing Redis configuration...');
+    }
 
     // Install PM2 globally
     console.log('\nInstalling PM2...');
