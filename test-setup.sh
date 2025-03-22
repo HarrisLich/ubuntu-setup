@@ -354,4 +354,40 @@ print_status "   b. Check the webhook logs in your SyncClient application"
 print_status "   c. Verify the user was synced to PostgreSQL and Redis"
 
 print_warning "IMPORTANT: Keep your .env file secure and never commit it to version control!"
-print_warning "Make sure to use strong, unique values for STRAPI_TOKEN and STRAPI_WEBHOOK_SECRET" 
+print_warning "Make sure to use strong, unique values for STRAPI_TOKEN and STRAPI_WEBHOOK_SECRET"
+
+# Add PM2 configuration for SyncClient
+print_status "\nSetting up SyncClient with PM2..."
+print_status "Copy and paste the following command to start the SyncClient server:"
+echo -e "\n${YELLOW}cat > ecosystem.sync.config.js << 'EOF'
+module.exports = {
+  apps: [
+    {
+      name: 'sync-client',
+      script: 'index.js',
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '1G',
+      env: {
+        NODE_ENV: 'production',
+        PORT: 3000,
+        STRAPI_TOKEN: 'your_strapi_token_here',
+        STRAPI_WEBHOOK_SECRET: 'your_webhook_secret_here'
+      }
+    }
+  ]
+}
+EOF
+
+pm2 start ecosystem.sync.config.js
+pm2 save
+pm2 startup${NC}\n"
+
+print_status "After running the command:"
+print_status "1. Replace 'your_strapi_token_here' with your actual Strapi API token"
+print_status "2. Replace 'your_webhook_secret_here' with your actual webhook secret"
+print_status "3. Adjust PORT if you're using a different port"
+print_status "4. The server will automatically start on system boot"
+print_status "5. Monitor the server with: pm2 monit"
+print_status "6. View logs with: pm2 logs sync-client" 

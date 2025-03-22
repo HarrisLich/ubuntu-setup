@@ -21,7 +21,15 @@ if (missingEnvVars.length > 0) {
 // Initialize SyncClient
 let syncClient;
 try {
+    // Generate a unique company identifier using timestamp and random string
+    const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const companyId = `company_${uniqueId}`;
+    
+    // Add companyId to config
+    config.companyId = companyId;
+    
     syncClient = new SyncClient(config);
+    console.log(`Initialized SyncClient with company ID: ${companyId}`);
 } catch (error) {
     console.error('Failed to initialize SyncClient:', error);
     process.exit(1);
