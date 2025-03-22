@@ -99,10 +99,14 @@ module.exports = ({ env }) => ({
     const strapiConfigPath = path.join(currentDir, config.strapi.appName, 'config/database.js');
     fs.writeFileSync(strapiConfigPath, strapiConfig);
 
-    // Install Strapi dependencies
+    // Install Strapi dependencies and build
     console.log('\nInstalling Strapi dependencies...');
     runCommand('cd ' + path.join(currentDir, config.strapi.appName));
     runCommand('npm install');
+    
+    // Build Strapi application
+    console.log('\nBuilding Strapi application...');
+    runCommand('npm run build');
 
     // Create PM2 ecosystem file
     console.log('\nCreating PM2 ecosystem file...');
